@@ -291,13 +291,20 @@ export class ExportService {
      * @param {string} departement - Code département
      * @returns {Promise<Array>} Chemins des fichiers générés
      */
-    async genererGraphiquesPDF(analyses, ecolesWithIPS, academie, departement) {
+    async genererGraphiquesPDF(
+        analyses,
+        ecolesWithIPS,
+        academie,
+        departement,
+        circonscription
+    ) {
         const graphiqueService = new GraphiqueService(this.outputDir);
         return await graphiqueService.genererGraphiquesDisciplines(
             analyses,
             ecolesWithIPS,
             academie,
-            departement
+            departement,
+            circonscription
         );
     }
 }

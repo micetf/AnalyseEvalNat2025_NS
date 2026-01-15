@@ -25,6 +25,7 @@ const __dirname = path.dirname(__filename);
 const CONFIG = {
     DEPARTEMENT: "07", // Code département (ex: "07" pour Ardèche)
     ACADEMIE: "GRENOBLE", // Nom de l'académie
+    CIRCONSCRIPTION: "Annonay", // Nom de la circonscription
     DATA_PATH: path.join(__dirname, "../data"),
     OUTPUT_PATH: path.join(__dirname, "../output"),
 };
@@ -189,7 +190,8 @@ async function main() {
             analyses,
             ecolesWithIPS,
             CONFIG.ACADEMIE,
-            CONFIG.DEPARTEMENT
+            CONFIG.DEPARTEMENT,
+            CONFIG.CIRCONSCRIPTION
         );
 
         // ═══════════════════════════════════════════════════════════

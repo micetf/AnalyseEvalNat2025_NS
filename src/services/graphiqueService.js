@@ -32,13 +32,15 @@ export class GraphiqueService {
      * @param {Array} ecolesWithIPS - Écoles avec IPS
      * @param {string} academie - Nom académie
      * @param {string} departement - Code département
+     * @param {string} circonscription - Nom de la circonscription
      * @returns {Promise<Array>} Chemins des fichiers générés
      */
     async genererGraphiquesDisciplines(
         analyses,
         ecolesWithIPS,
         academie,
-        departement
+        departement,
+        circonscription
     ) {
         console.log("\n📊 GÉNÉRATION DES GRAPHIQUES PDF PAR DISCIPLINE");
         console.log("─".repeat(80));
@@ -53,7 +55,8 @@ export class GraphiqueService {
                 analyses,
                 ecolesWithIPS,
                 academie,
-                departement
+                departement,
+                circonscription
             );
             fichiers.push(fichierMaths);
             console.log(`   ✓ Maths : ${path.basename(fichierMaths)}`);
@@ -69,7 +72,8 @@ export class GraphiqueService {
                 analyses,
                 ecolesWithIPS,
                 academie,
-                departement
+                departement,
+                circonscription
             );
             fichiers.push(fichierFrancais);
             console.log(`   ✓ Français : ${path.basename(fichierFrancais)}`);
@@ -88,6 +92,7 @@ export class GraphiqueService {
      * @param {Array} ecolesWithIPS - Écoles avec IPS
      * @param {string} academie - Nom académie
      * @param {string} departement - Code département
+     * @param {string} circonscription - Nom de la circonscription
      * @returns {Promise<string>} Chemin du fichier généré
      */
     genererGraphiqueDiscipline(
@@ -95,7 +100,8 @@ export class GraphiqueService {
         analyses,
         ecolesWithIPS,
         academie,
-        departement
+        departement,
+        circonscription
     ) {
         return new Promise((resolve, reject) => {
             try {
@@ -109,18 +115,46 @@ export class GraphiqueService {
                 }
 
                 // Agréger par école
-                const donneesEcoles = this.aggregerDonneesParEcole(
+                const donneesEcolesBrut = this.aggregerDonneesParEcole(
                     analysesMatiere,
                     ecolesWithIPS
                 );
 
-                if (donneesEcoles.length < 4) {
+                if (donneesEcolesBrut.length < 4) {
                     return reject(
                         new Error(
                             `Données insuffisantes pour ${matiere} (< 4 écoles)`
                         )
                     );
                 }
+
+                // Calculer la régression linéaire
+                const pointsRegression = donneesEcolesBrut.map((e) => [
+                    e.ips,
+                    e.pct_satisfaisant_moyen,
+                ]);
+                const regression = ss.linearRegression(pointsRegression);
+                const regressionLine = ss.linearRegressionLine(regression);
+                const r2 = ss.rSquared(pointsRegression, regressionLine);
+
+                // Calculer le profil basé sur la position par rapport à la régression
+                const donneesEcoles = donneesEcolesBrut.map((e) => {
+                    const attendu = regression.m * e.ips + regression.b;
+                    const ecart = e.pct_satisfaisant_moyen - attendu;
+
+                    let profil = "CONFORME";
+                    if (ecart > 7) {
+                        profil = "LEVIER";
+                    } else if (ecart < -7) {
+                        profil = "VIGILANCE";
+                    }
+
+                    return {
+                        ...e,
+                        profil: profil,
+                        ecart_regression: ecart,
+                    };
+                });
 
                 // Trier par nom pour assignation de numéros cohérente
                 donneesEcoles.sort((a, b) => a.nom.localeCompare(b.nom));
@@ -129,15 +163,6 @@ export class GraphiqueService {
                 donneesEcoles.forEach((e, idx) => {
                     e.numero = idx + 1;
                 });
-
-                // Calculer la régression linéaire
-                const pointsRegression = donneesEcoles.map((e) => [
-                    e.ips,
-                    e.pct_satisfaisant_moyen,
-                ]);
-                const regression = ss.linearRegression(pointsRegression);
-                const regressionLine = ss.linearRegressionLine(regression);
-                const r2 = ss.rSquared(pointsRegression, regressionLine);
 
                 // Limites des axes
                 const ipsValues = donneesEcoles.map((e) => e.ips);
@@ -174,20 +199,20 @@ export class GraphiqueService {
                 doc.pipe(stream);
 
                 // ═══════════════════════════════════════════════════════════
-                // LAYOUT
+                // LAYOUT - Optimisé pour tenir sur UNE PAGE
                 // ═══════════════════════════════════════════════════════════
                 const PAGE_WIDTH = 842;
                 const PAGE_HEIGHT = 595;
 
-                const MARGIN_LEFT = 40;
-                const MARGIN_TOP = 40;
-                const MARGIN_RIGHT = 40;
+                const MARGIN_LEFT = 30;
+                const MARGIN_TOP = 30;
+                const MARGIN_RIGHT = 30;
 
-                // Zone graphique (à gauche)
+                // Zone graphique (à gauche) - Remontée
                 const GRAPH_LEFT = MARGIN_LEFT + 60;
-                const GRAPH_TOP = 120;
+                const GRAPH_TOP = 100; // Réduit de 110 à 105 (-5px)
                 const GRAPH_WIDTH = 450;
-                const GRAPH_HEIGHT = 350;
+                const GRAPH_HEIGHT = 355;
 
                 // Zone liste écoles (à droite)
                 const LISTE_LEFT = GRAPH_LEFT + GRAPH_WIDTH + 30;
@@ -204,12 +229,13 @@ export class GraphiqueService {
                     MARGIN_TOP
                 );
 
+                // Ligne d'information avec circonscription
                 doc.fontSize(10).font("Helvetica").fillColor("#6b7280");
-                doc.text(
-                    `Académie ${academie} | Département ${departement} | ${donneesEcoles.length} écoles publiques`,
-                    MARGIN_LEFT,
-                    MARGIN_TOP + 25
-                );
+                const infoText = circonscription
+                    ? `Académie ${academie} | Circonscription ${circonscription} | Département ${departement} | ${donneesEcoles.length} écoles publiques`
+                    : `Académie ${academie} | Département ${departement} | ${donneesEcoles.length} écoles publiques`;
+
+                doc.text(infoText, MARGIN_LEFT, MARGIN_TOP + 25);
 
                 doc.fontSize(8).fillColor("#9ca3af");
                 doc.text(
@@ -219,7 +245,7 @@ export class GraphiqueService {
                     { width: 120, align: "right" }
                 );
 
-                // Statistiques
+                // Statistiques - Remontée
                 const pctMoyen = (
                     pctValues.reduce((a, b) => a + b) / pctValues.length
                 ).toFixed(1);
@@ -227,7 +253,7 @@ export class GraphiqueService {
                     ipsValues.reduce((a, b) => a + b) / ipsValues.length
                 ).toFixed(1);
 
-                const statsY = MARGIN_TOP + 50;
+                const statsY = MARGIN_TOP + 43; // Réduit de 50 à 43 (-7px)
                 doc.fontSize(9).font("Helvetica").fillColor("#374151");
                 doc.text(
                     `Régression : y = ${regression.m.toFixed(
@@ -320,17 +346,16 @@ export class GraphiqueService {
                 );
 
                 // ═══════════════════════════════════════════════════════════
-                // LISTE DES ÉCOLES
+                // LISTE DES ÉCOLES - TOUTES AFFICHÉES
                 // ═══════════════════════════════════════════════════════════
                 doc.fontSize(10).font("Helvetica-Bold").fillColor("#1f2937");
                 doc.text("ÉCOLES", LISTE_LEFT, LISTE_TOP);
 
                 let listeY = LISTE_TOP + 18;
-                const LINE_HEIGHT = 11;
-                const MAX_LINES =
-                    33 | Math.floor((GRAPH_HEIGHT - 20) / LINE_HEIGHT);
+                const LINE_HEIGHT = 10.5;
 
-                donneesEcoles.slice(0, MAX_LINES).forEach((ecole) => {
+                // Afficher TOUTES les écoles
+                donneesEcoles.forEach((ecole) => {
                     // Couleur du numéro
                     let couleur = "#eab308";
                     if (ecole.profil === "LEVIER") couleur = "#22c55e";
@@ -364,21 +389,10 @@ export class GraphiqueService {
                     listeY += LINE_HEIGHT;
                 });
 
-                if (donneesEcoles.length > MAX_LINES) {
-                    doc.fontSize(7)
-                        .font("Helvetica-Oblique")
-                        .fillColor("#9ca3af");
-                    doc.text(
-                        `... ${donneesEcoles.length - MAX_LINES} autre(s)`,
-                        LISTE_LEFT + 18,
-                        listeY
-                    );
-                }
-
                 // ═══════════════════════════════════════════════════════════
-                // LÉGENDE
+                // LÉGENDE - Espacement augmenté
                 // ═══════════════════════════════════════════════════════════
-                const legendeY = GRAPH_TOP + GRAPH_HEIGHT + 20;
+                const legendeY = GRAPH_TOP + GRAPH_HEIGHT + 30; // Augmenté de 20 à 30 (+10px)
 
                 doc.fontSize(9).font("Helvetica-Bold").fillColor("#1f2937");
                 doc.text("LÉGENDE", GRAPH_LEFT, legendeY);
@@ -386,15 +400,15 @@ export class GraphiqueService {
                 const legende = [
                     {
                         couleur: "#22c55e",
-                        label: "LEVIER : > 30% compétences leviers (écart > +7 pts)",
+                        label: "LEVIER : % satisfaisant > attendu IPS + 7 pts",
                     },
                     {
                         couleur: "#eab308",
-                        label: "CONFORME : Résultats conformes à l'IPS (-7 à +7 pts)",
+                        label: "CONFORME : % satisfaisant proche de l'attendu IPS (±7 pts)",
                     },
                     {
                         couleur: "#ef4444",
-                        label: "VIGILANCE : > 30% compétences vigilance (écart < -7 pts)",
+                        label: "VIGILANCE : % satisfaisant < attendu IPS - 7 pts",
                     },
                 ];
 
@@ -413,7 +427,7 @@ export class GraphiqueService {
                 });
 
                 // Interprétation
-                const interpreY = legendeCurrentY + 10;
+                const interpreY = legendeCurrentY + 5;
                 doc.fontSize(7).font("Helvetica").fillColor("#6b7280");
                 const interpretationText = `La droite de régression montre le % "satisfaisant" attendu selon l'IPS. Les écoles au-dessus surperforment (LEVIERS), celles en-dessous sous-performent (VIGILANCE). L'écart vertical mesure la performance relative au contexte socio-économique.`;
 
@@ -434,7 +448,10 @@ export class GraphiqueService {
     }
 
     /**
-     * Agrège les données par école
+     * Agrège les données par école avec cumul des effectifs B, F, S
+     * @param {Array} analysesMatiere - Analyses filtrées par matière
+     * @param {Array} ecolesWithIPS - Écoles avec IPS
+     * @returns {Array} Données agrégées par école
      */
     aggregerDonneesParEcole(analysesMatiere, ecolesWithIPS) {
         const parEcole = new Map();
@@ -448,48 +465,56 @@ export class GraphiqueService {
                     uai: a.uai,
                     nom: a.ecole,
                     ips: a.ips,
-                    resultats: [],
-                    nb_leviers: 0,
-                    nb_vigilance: 0,
-                    nb_conformes: 0,
+                    effectifs_total: {
+                        besoins: 0,
+                        fragiles: 0,
+                        satisfaisant: 0,
+                    },
                 });
             }
 
             const ecole = parEcole.get(a.uai);
-            ecole.resultats.push(a.resultat_reel);
 
-            if (a.categorie_code === "LEVIER") ecole.nb_leviers++;
-            else if (a.categorie_code === "VIGILANCE") ecole.nb_vigilance++;
-            else ecole.nb_conformes++;
+            // Cumuler les effectifs de toutes les compétences
+            if (a.effectifs) {
+                ecole.effectifs_total.besoins += a.effectifs.besoins;
+                ecole.effectifs_total.fragiles += a.effectifs.fragiles;
+                ecole.effectifs_total.satisfaisant += a.effectifs.satisfaisant;
+            }
         });
 
         return Array.from(parEcole.values()).map((e) => {
+            // Calcul du pourcentage global avec cumul des effectifs
+            const total =
+                e.effectifs_total.besoins +
+                e.effectifs_total.fragiles +
+                e.effectifs_total.satisfaisant;
+
             const pct_satisfaisant_moyen =
-                e.resultats.reduce((a, b) => a + b, 0) / e.resultats.length;
-
-            const total = e.nb_leviers + e.nb_conformes + e.nb_vigilance;
-            let profil = "CONFORME";
-            if (total > 0) {
-                const tauxLeviers = (e.nb_leviers / total) * 100;
-                const tauxVigilance = (e.nb_vigilance / total) * 100;
-
-                if (tauxLeviers >= 30) profil = "LEVIER";
-                else if (tauxVigilance >= 30) profil = "VIGILANCE";
-            }
+                total > 0 ? (e.effectifs_total.satisfaisant / total) * 100 : 0;
 
             return {
                 uai: e.uai,
                 nom: e.nom,
                 ips: e.ips,
                 pct_satisfaisant_moyen: pct_satisfaisant_moyen,
-                nb_competences: e.resultats.length,
-                profil: profil,
+                effectifs_total: e.effectifs_total,
+                nb_eleves_total: total,
             };
         });
     }
 
     /**
-     * Dessine la grille
+     * Dessine la grille du graphique
+     * @param {Object} doc - Document PDF
+     * @param {number} left - Position gauche
+     * @param {number} top - Position haute
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     * @param {number} minX - Valeur minimale X
+     * @param {number} maxX - Valeur maximale X
+     * @param {number} minY - Valeur minimale Y
+     * @param {number} maxY - Valeur maximale Y
      */
     dessinerGrille(doc, left, top, width, height, minX, maxX, minY, maxY) {
         doc.strokeColor("#e5e7eb").lineWidth(0.5);
@@ -512,7 +537,18 @@ export class GraphiqueService {
     }
 
     /**
-     * Dessine les zones de catégorisation
+     * Dessine les zones de catégorisation (LEVIER, CONFORME, VIGILANCE)
+     * @param {Object} doc - Document PDF
+     * @param {number} left - Position gauche
+     * @param {number} top - Position haute
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     * @param {number} minX - Valeur minimale X
+     * @param {number} maxX - Valeur maximale X
+     * @param {number} minY - Valeur minimale Y
+     * @param {number} maxY - Valeur maximale Y
+     * @param {number} a - Coefficient directeur de la régression
+     * @param {number} b - Ordonnée à l'origine de la régression
      */
     dessinerZonesCategorisation(
         doc,
@@ -578,7 +614,18 @@ export class GraphiqueService {
     }
 
     /**
-     * Dessine la droite de régression
+     * Dessine la droite de régression linéaire
+     * @param {Object} doc - Document PDF
+     * @param {number} left - Position gauche
+     * @param {number} top - Position haute
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     * @param {number} minX - Valeur minimale X
+     * @param {number} maxX - Valeur maximale X
+     * @param {number} minY - Valeur minimale Y
+     * @param {number} maxY - Valeur maximale Y
+     * @param {number} a - Coefficient directeur
+     * @param {number} b - Ordonnée à l'origine
      */
     dessinerRegression(
         doc,
@@ -606,15 +653,20 @@ export class GraphiqueService {
         const posY2 = top + height - ((y2 - minY) / (maxY - minY)) * height;
 
         doc.moveTo(posX1, posY1).lineTo(posX2, posY2).stroke();
-
-        // doc.fontSize(7).font("Helvetica").fillColor("#1f2937");
-        // const midX = (posX1 + posX2) / 2;
-        // const midY = (posY1 + posY2) / 2;
-        // doc.text("Régression", midX - 20, midY - 10);
     }
 
     /**
-     * Dessine les points des écoles avec numéros
+     * Dessine les points représentant les écoles avec leurs numéros
+     * @param {Object} doc - Document PDF
+     * @param {number} left - Position gauche
+     * @param {number} top - Position haute
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     * @param {number} minX - Valeur minimale X
+     * @param {number} maxX - Valeur maximale X
+     * @param {number} minY - Valeur minimale Y
+     * @param {number} maxY - Valeur maximale Y
+     * @param {Array} donneesEcoles - Données des écoles
      */
     dessinerEcoles(
         doc,
@@ -663,7 +715,16 @@ export class GraphiqueService {
     }
 
     /**
-     * Dessine les axes avec repères
+     * Dessine les axes avec graduations et labels
+     * @param {Object} doc - Document PDF
+     * @param {number} left - Position gauche
+     * @param {number} top - Position haute
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     * @param {number} minX - Valeur minimale X
+     * @param {number} maxX - Valeur maximale X
+     * @param {number} minY - Valeur minimale Y
+     * @param {number} maxY - Valeur maximale Y
      */
     dessinerAxes(doc, left, top, width, height, minX, maxX, minY, maxY) {
         doc.strokeColor("#374151").lineWidth(1.5);

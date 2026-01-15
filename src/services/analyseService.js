@@ -34,13 +34,24 @@ export class AnalyseService {
             if (!ecole.ips) return;
 
             Object.keys(ecole.resultats).forEach((competence) => {
-                if (!competencesData[competence]) {
-                    competencesData[competence] = [];
+                const effectifs = ecole.resultats[competence];
+                const total =
+                    effectifs.besoins +
+                    effectifs.fragiles +
+                    effectifs.satisfaisant;
+
+                if (total > 0) {
+                    const pctSatisfaisant =
+                        (effectifs.satisfaisant / total) * 100;
+
+                    if (!competencesData[competence]) {
+                        competencesData[competence] = [];
+                    }
+                    competencesData[competence].push([
+                        ecole.ips,
+                        pctSatisfaisant,
+                    ]);
                 }
-                competencesData[competence].push([
-                    ecole.ips,
-                    ecole.resultats[competence],
-                ]);
             });
         });
 
@@ -95,9 +106,14 @@ export class AnalyseService {
      * @returns {Object|null}
      */
     categoriser(ecole, competence, seuilLevier = 7, seuilVigilance = -7) {
-        const resultatReel = ecole.resultats[competence];
-        if (resultatReel === undefined || !ecole.ips) return null;
+        const effectifs = ecole.resultats[competence];
+        if (!effectifs || !ecole.ips) return null;
 
+        const total =
+            effectifs.besoins + effectifs.fragiles + effectifs.satisfaisant;
+        if (total === 0) return null;
+
+        const resultatReel = (effectifs.satisfaisant / total) * 100;
         const attendu = this.predictFromIPS(competence, ecole.ips);
         if (!attendu) return null;
 
@@ -151,6 +167,7 @@ export class AnalyseService {
             ecart_vs_ips: Math.round(ecart * 10) / 10,
             categorie: categorie,
             categorie_code: categorieCode,
+            effectifs: effectifs, // Ajout des effectifs pour le graphique
             ref_france: ref?.france ? Math.round(ref.france * 10) / 10 : null,
             ref_academie: ref?.academie
                 ? Math.round(ref.academie * 10) / 10

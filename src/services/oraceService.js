@@ -244,11 +244,11 @@ export class OraceService {
     }
 
     /**
-     * Extrait les compétences depuis la ligne 3
+     * Extrait les compétences avec leurs colonnes d'effectifs
      * @param {Array} ligne3 - Ligne des compétences
      * @param {Array} ligneGroupes - Ligne des groupes
      * @param {Array} lignePourcentages - Ligne des pourcentages
-     * @returns {Array} Compétences avec colonnes
+     * @returns {Array} Compétences avec colonnes d'effectifs
      */
     extraireCompetences(ligne3, ligneGroupes, lignePourcentages) {
         const competences = [];
@@ -266,7 +266,7 @@ export class OraceService {
 
                 if (estCompetence) {
                     if (competenceEnCours) {
-                        this.finaliserCompetence(
+                        this.finaliserCompetenceAvecEffectifs(
                             competences,
                             competenceEnCours,
                             colonneDebutCompetence,
@@ -283,7 +283,7 @@ export class OraceService {
         });
 
         if (competenceEnCours) {
-            this.finaliserCompetence(
+            this.finaliserCompetenceAvecEffectifs(
                 competences,
                 competenceEnCours,
                 colonneDebutCompetence,
@@ -297,7 +297,7 @@ export class OraceService {
     }
 
     /**
-     * Finalise une compétence en trouvant sa colonne de pourcentage
+     * Finalise une compétence en trouvant les colonnes d'effectifs B, F, S
      * @param {Array} competences - Tableau des compétences
      * @param {string} nomCompetence - Nom de la compétence
      * @param {number} colDebut - Colonne de début
@@ -305,7 +305,7 @@ export class OraceService {
      * @param {Array} ligneGroupes - Ligne des groupes
      * @param {Array} lignePourcentages - Ligne des pourcentages
      */
-    finaliserCompetence(
+    finaliserCompetenceAvecEffectifs(
         competences,
         nomCompetence,
         colDebut,
@@ -313,47 +313,44 @@ export class OraceService {
         ligneGroupes,
         lignePourcentages
     ) {
-        let colonneSatisfaisantGroupe = null;
+        const colonnes = { besoins: null, fragiles: null, satisfaisant: null };
 
+        // Parcourir les colonnes de la compétence
         for (let col = colDebut; col <= colFin; col++) {
-            const texte = (ligneGroupes[col] || "").toLowerCase().trim();
-            if (texte.includes("satisfaisant")) {
-                colonneSatisfaisantGroupe = col;
-                break;
+            const texteGroupe = (ligneGroupes[col] || "").toLowerCase().trim();
+            const textePct = (lignePourcentages[col] || "")
+                .toLowerCase()
+                .trim();
+
+            // Détecter si c'est une colonne d'effectif (pas de % dans la ligne pourcentages)
+            const estEffectif =
+                !textePct.includes("%") && !textePct.includes("répondants");
+
+            if (estEffectif && texteGroupe.length > 0) {
+                if (
+                    texteGroupe.includes("besoin") ||
+                    texteGroupe.includes("à besoins")
+                ) {
+                    colonnes.besoins = col;
+                } else if (texteGroupe.includes("fragile")) {
+                    colonnes.fragiles = col;
+                } else if (texteGroupe.includes("satisfaisant")) {
+                    colonnes.satisfaisant = col;
+                }
             }
         }
 
-        if (colonneSatisfaisantGroupe === null) return;
-
-        let colonnePourcentage = null;
-
-        for (
-            let col = colonneSatisfaisantGroupe;
-            col <= Math.min(colonneSatisfaisantGroupe + 3, colFin);
-            col++
-        ) {
-            const texte = (lignePourcentages[col] || "").toLowerCase().trim();
-            if (texte.includes("%") || texte.includes("répondants")) {
-                colonnePourcentage = col;
-                break;
-            }
-        }
-
-        if (colonnePourcentage !== null) {
+        // Si on a trouvé au moins la colonne satisfaisant, on garde la compétence
+        if (colonnes.satisfaisant !== null) {
             competences.push({
                 nom: nomCompetence,
-                colonne: colonnePourcentage,
-            });
-        } else {
-            competences.push({
-                nom: nomCompetence,
-                colonne: colonneSatisfaisantGroupe + 1,
+                colonnes: colonnes,
             });
         }
     }
 
     /**
-     * Extrait les données des écoles
+     * Extrait les données des écoles avec effectifs B, F, S
      * @param {Array} lignesEcoles - Lignes contenant les écoles
      * @param {Array} competences - Compétences identifiées
      * @param {string} niveau - Niveau
@@ -372,13 +369,34 @@ export class OraceService {
             const resultats = {};
 
             competences.forEach((comp) => {
-                const valeurCellule = ligne[comp.colonne];
-                const pctSatisfaisant = this.parsePourcentage(valeurCellule);
+                const nomNormalise = this.normaliserNomCompetence(comp.nom);
+                const cleCompetence = `${niveau}_${matiere}_${nomNormalise}`;
 
-                if (pctSatisfaisant !== null) {
-                    const nomNormalise = this.normaliserNomCompetence(comp.nom);
-                    const cleCompetence = `${niveau}_${matiere}_${nomNormalise}`;
-                    resultats[cleCompetence] = pctSatisfaisant;
+                // Extraire les effectifs
+                const effectifs = {
+                    besoins:
+                        comp.colonnes.besoins !== null
+                            ? this.parseEffectif(ligne[comp.colonnes.besoins])
+                            : 0,
+                    fragiles:
+                        comp.colonnes.fragiles !== null
+                            ? this.parseEffectif(ligne[comp.colonnes.fragiles])
+                            : 0,
+                    satisfaisant:
+                        comp.colonnes.satisfaisant !== null
+                            ? this.parseEffectif(
+                                  ligne[comp.colonnes.satisfaisant]
+                              )
+                            : 0,
+                };
+
+                // Ne garder que si on a au moins un effectif non nul
+                const total =
+                    effectifs.besoins +
+                    effectifs.fragiles +
+                    effectifs.satisfaisant;
+                if (total > 0) {
+                    resultats[cleCompetence] = effectifs;
                 }
             });
 
@@ -391,21 +409,18 @@ export class OraceService {
     }
 
     /**
-     * Parse un pourcentage
+     * Parse un effectif
      * @param {string} valeur - Valeur à parser
-     * @returns {number|null}
+     * @returns {number}
      */
-    parsePourcentage(valeur) {
-        if (valeur === null || valeur === undefined || valeur === "")
-            return null;
+    parseEffectif(valeur) {
+        if (valeur === null || valeur === undefined || valeur === "") return 0;
 
-        let valeurStr = valeur.toString().trim();
-        valeurStr = valeurStr.replace("%", "").replace(",", ".");
+        const valeurStr = valeur.toString().trim();
+        const valeurNum = parseInt(valeurStr, 10);
 
-        const valeurNum = parseFloat(valeurStr);
-        if (isNaN(valeurNum)) return null;
+        if (isNaN(valeurNum) || valeurNum < 0) return 0;
 
-        if (valeurNum > 0 && valeurNum < 1) return valeurNum * 100;
         return valeurNum;
     }
 

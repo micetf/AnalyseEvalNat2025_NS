@@ -3,7 +3,71 @@
 ## Description
 
 Outil d'aide à la décision pour les Inspecteurs de l'Éducation Nationale (IEN).
-Génère 5 niveaux de lecture complémentaires des résultats d'évaluations nationales.
+Génère 5 niveaux de lecture complémentaires des résultats d'évaluations nationales en croisant les données ORACE avec l'Indice de Position Sociale (IPS).
+
+## Logique métier
+
+### Principe de calcul du % groupe satisfaisant
+
+Pour chaque école et chaque matière (Maths ou Français), le pourcentage d'élèves satisfaisants est calculé selon la formule :
+
+```
+% satisfaisant = 100 × S / (B + F + S)
+```
+
+Où :
+
+-   **S** = Cumul des effectifs "Satisfaisant" sur toutes les compétences de la matière
+-   **F** = Cumul des effectifs "Fragile" sur toutes les compétences de la matière
+-   **B** = Cumul des effectifs "À besoins" sur toutes les compétences de la matière
+
+**Exemple concret :**
+Une école avec 50 élèves évalués en Maths sur 5 compétences :
+
+-   Total effectifs : 250 évaluations (50 élèves × 5 compétences)
+-   Effectifs cumulés : B=60, F=80, S=110
+-   % satisfaisant = 100 × 110 / (60 + 80 + 110) = **44%**
+
+Cette approche **respecte les effectifs réels** : une compétence évaluée sur 100 élèves pèse plus qu'une compétence évaluée sur 10 élèves.
+
+### Régression linéaire IPS
+
+Pour chaque discipline, une régression linéaire est calculée entre :
+
+-   **Variable X** : IPS de l'école (Indice de Position Sociale)
+-   **Variable Y** : % groupe satisfaisant de l'école
+
+Cette droite représente le **résultat attendu** en fonction du contexte socio-économique.
+
+### Catégorisation des écoles
+
+Chaque école est catégorisée selon l'**écart** entre son résultat réel et le résultat attendu par la régression :
+
+```
+Écart = % satisfaisant réel - % satisfaisant attendu (régression)
+```
+
+| Catégorie     | Condition         | Couleur  | Signification                  |
+| ------------- | ----------------- | -------- | ------------------------------ |
+| **LEVIER**    | Écart > +7 points | 🟢 Vert  | Surperformance significative   |
+| **CONFORME**  | -7 ≤ Écart ≤ +7   | 🟡 Jaune | Performance conforme à l'IPS   |
+| **VIGILANCE** | Écart < -7 points | 🔴 Rouge | Sous-performance significative |
+
+### Matrice de priorisation 3×3
+
+Chaque école est positionnée dans une matrice croisant Maths (M) et Français (F), avec 9 profils possibles :
+
+| Profil | Description                        | Priorité |
+| ------ | ---------------------------------- | -------- |
+| (V,V)  | ACCOMPAGNEMENT GLOBAL URGENT       | P0       |
+| (V,C)  | ACCOMP. MATHS + SUIVI FRANÇAIS     | P1       |
+| (C,V)  | ACCOMP. FRANÇAIS + SUIVI MATHS     | P1       |
+| (V,L)  | ACCOMP. MATHS + VALORISER FRANÇAIS | P2       |
+| (L,V)  | ACCOMP. FRANÇAIS + VALORISER MATHS | P2       |
+| (C,C)  | SUIVI STANDARD                     | P3       |
+| (C,L)  | SUIVI RENFORCÉ + OBSERVATION       | P4       |
+| (L,C)  | SUIVI RENFORCÉ + OBSERVATION       | P4       |
+| (L,L)  | EXCELLENCE À VALORISER             | P5       |
 
 ## Installation
 
@@ -15,11 +79,64 @@ pnpm install
 
 ## Configuration
 
-1. Placer les fichiers CSV ORACE dans `data/orace/csv/`
-2. Placer les références DEPP dans `data/references_nationales/`
-3. Adapter les paramètres dans `src/index.js` :
-    - Code département
-    - Nom académie
+### 1. Fichiers sources
+
+Placer les fichiers dans l'arborescence suivante :
+
+```
+data/
+├── orace/
+│   └── csv/
+│       ├── CIRCO_ecoles_CPFR.csv
+│       ├── CIRCO_ecoles_CPMA.csv
+│       ├── CIRCO_ecoles_CE1FR.csv
+│       ├── CIRCO_ecoles_CE1MA.csv
+│       ├── CIRCO_ecoles_CE2FR.csv
+│       ├── CIRCO_ecoles_CE2MA.csv
+│       ├── CIRCO_ecoles_CM1FR.csv
+│       ├── CIRCO_ecoles_CM1MA.csv
+│       ├── CIRCO_ecoles_CM2FR.csv
+│       └── CIRCO_ecoles_CM2MA.csv
+└── references_nationales/
+    ├── cp-francais-2025.xlsx
+    ├── cp-mathematiques-2025.xlsx
+    ├── ce1-francais-2025.xlsx
+    ├── ce1-mathematiques-2025.xlsx
+    ├── ce2-francais-2025.xlsx
+    ├── ce2-mathematiques-2025.xlsx
+    ├── cm1-francais-2025.xlsx
+    ├── cm1-mathematiques-2025.xlsx
+    ├── cm2-francais-2025.xlsx
+    └── cm2-mathematiques-2025.xlsx
+```
+
+### 2. Paramètres de l'outil
+
+Éditer `src/index.js` pour configurer :
+
+```javascript
+const CONFIG = {
+    DEPARTEMENT: "07", // Code département
+    ACADEMIE: "GRENOBLE", // Nom académie (en MAJUSCULES)
+    CIRCONSCRIPTION: "Annonay", // Nom circonscription
+    DATA_PATH: path.join(__dirname, "../data"),
+    OUTPUT_PATH: path.join(__dirname, "../output"),
+};
+```
+
+## Structure des fichiers CSV ORACE
+
+Les fichiers CSV doivent contenir pour chaque compétence :
+
+-   Une colonne **effectif** pour chaque groupe (À besoins, Fragile, Satisfaisant)
+-   Les colonnes de pourcentages sont ignorées
+
+**Exemple de structure attendue :**
+
+| UAI      | Nom établissement | Compétence 1 - À besoins (effectif) | Compétence 1 - Fragile (effectif) | Compétence 1 - Satisfaisant (effectif) | ... |
+| -------- | ----------------- | ----------------------------------- | --------------------------------- | -------------------------------------- | --- |
+| 0070001A | École A           | 5                                   | 10                                | 35                                     | ... |
+| 0070002B | École B           | 8                                   | 12                                | 30                                     | ... |
 
 ## Utilisation
 
@@ -29,19 +146,135 @@ npm start
 pnpm start
 ```
 
-## Sorties
+## Sorties générées
 
-Le fichier Excel généré contient :
+### 1. Fichier Excel stratégique
 
-1. Dashboard IEN (indicateurs clés)
-2. Matrice de priorisation 3×3
-3. Plan d'actions détaillé
-4. Portefeuille des leviers
-5. Liste complète des écoles avec profils
+**Nom :** `strategie_ien_dept{XX}_{timestamp}.xlsx`
 
-## Structure des données
+**Contenu :**
 
--   **data/orace/csv/** : Exports CSV depuis ORACE (CIRCO*ecoles*\*.csv)
--   **data/references_nationales/** : Fichiers Excel DEPP (niveau-matiere-2025.xlsx)
--   **data/cache/** : Cache IPS (automatique)
--   **output/** : Fichiers Excel générés
+#### Onglet 1 : 📊 Dashboard IEN
+
+-   Indicateurs clés (nb écoles, taux vigilance/leviers)
+-   Vue d'ensemble Maths/Français
+-   Plan d'actions synthétique
+
+#### Onglet 2 : 🎯 Matrice
+
+-   Matrice de priorisation 3×3
+-   Liste des écoles par profil croisé
+-   Priorités d'intervention (P0 à P5)
+
+#### Onglet 3 : 📋 Plan Actions
+
+-   Visites d'accompagnement prioritaires
+-   Animations pédagogiques recommandées
+-   Actions de valorisation des leviers
+
+#### Onglet 4 : ⭐ Leviers
+
+-   Écoles leviers identifiées (≥30% compétences en surperformance)
+-   Taux de leviers par école
+-   Données IPS et profil global
+
+#### Onglet 5 : 🏫 Écoles
+
+-   Liste complète des écoles
+-   Profils Maths, Français et croisé
+-   Priorité d'intervention
+-   Détail leviers/vigilance par matière
+
+### 2. Graphiques PDF
+
+Deux fichiers PDF générés :
+
+-   `graphique_maths_dept{XX}_{timestamp}.pdf`
+-   `graphique_francais_dept{XX}_{timestamp}.pdf`
+
+**Contenu de chaque graphique :**
+
+-   Nuage de points : IPS (axe X) × % satisfaisant (axe Y)
+-   Droite de régression linéaire
+-   Zones colorées (vert = leviers, rouge = vigilance)
+-   Liste numérotée de toutes les écoles
+-   Légende et interprétation
+
+## Architecture du code
+
+```
+src/
+├── index.js                    # Point d'entrée
+├── services/
+│   ├── oraceService.js         # Chargement CSV + extraction effectifs
+│   ├── ipsService.js           # Récupération IPS via API data.gouv
+│   ├── referencesService.js    # Chargement références DEPP
+│   ├── analyseService.js       # Régressions + catégorisation
+│   ├── strategieService.js     # 5 niveaux de lecture
+│   ├── exportService.js        # Génération Excel
+│   └── graphiqueService.js     # Génération PDF
+└── utils/
+    └── categorisation.js       # Fonctions de classification
+```
+
+## Dépendances principales
+
+-   **xlsx** : Lecture/écriture fichiers Excel
+-   **pdfkit** : Génération de PDF
+-   **simple-statistics** : Calculs de régression linéaire
+-   **axios** : Appels API data.gouv
+-   **csv-parse** : Parsing des fichiers CSV
+
+## Cache IPS
+
+Les données IPS sont automatiquement mises en cache dans `data/cache/` pour :
+
+-   Éviter les appels répétés à l'API
+-   Améliorer les performances
+-   Cache valide 30 jours
+
+Pour forcer le rafraîchissement, supprimer le fichier de cache correspondant.
+
+## Limites et précautions
+
+1. **Effectifs requis** : Chaque compétence doit avoir des effectifs B, F, S dans les CSV
+2. **Minimum 4 écoles** : Nécessaire pour calculer une régression significative
+3. **IPS obligatoire** : Seules les écoles publiques avec IPS sont analysées
+4. **Références DEPP** : Fichiers Excel au format attendu par la DEPP
+5. **Seuils fixes** : Les seuils ±7 points sont constants (non paramétrables actuellement)
+
+## Interprétation pédagogique
+
+### Coefficient R² de la régression
+
+Le R² mesure la part de variance expliquée par l'IPS :
+
+| R²      | Interprétation                                               |
+| ------- | ------------------------------------------------------------ |
+| > 0.7   | IPS très déterminant → Marge de manœuvre limitée             |
+| 0.5-0.7 | IPS déterminant → Pratiques pédagogiques influentes          |
+| 0.3-0.5 | IPS modérément déterminant → Leviers pédagogiques importants |
+| < 0.3   | Faible influence IPS → Forte marge de manœuvre ✨            |
+
+### Utilisation des graphiques PDF
+
+Les graphiques permettent de :
+
+1. **Identifier visuellement** les écoles surperformantes (au-dessus de la droite)
+2. **Prioriser les accompagnements** (écoles en zone rouge)
+3. **Valoriser les pratiques** (écoles leviers en zone verte)
+4. **Mesurer l'équité** (dispersion autour de la droite)
+
+## Support et contribution
+
+Pour toute question ou amélioration, contacter le CPC Numérique.
+
+## Licence
+
+MIT
+
+---
+
+**Auteur :** CPC Numérique  
+**Version :** 1.0.0  
+**Dernière mise à jour :** Janvier 2025
