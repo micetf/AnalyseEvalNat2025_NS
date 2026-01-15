@@ -1,0 +1,7 @@
+node_modules/
+data/cache/
+data/orace/
+data/references_nationales/
+output/
+*.log
+.DS_Store
