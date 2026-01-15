@@ -386,15 +386,15 @@ export class GraphiqueService {
                 const legende = [
                     {
                         couleur: "#22c55e",
-                        label: "🟢 LEVIER : ≥30% compétences leviers (écart > +7 pts)",
+                        label: "LEVIER : > 30% compétences leviers (écart > +7 pts)",
                     },
                     {
                         couleur: "#eab308",
-                        label: "🟡 CONFORME : Résultats conformes à l'IPS (-7 à +7 pts)",
+                        label: "CONFORME : Résultats conformes à l'IPS (-7 à +7 pts)",
                     },
                     {
                         couleur: "#ef4444",
-                        label: "🔴 VIGILANCE : ≥30% compétences vigilance (écart < -7 pts)",
+                        label: "VIGILANCE : > 30% compétences vigilance (écart < -7 pts)",
                     },
                 ];
 
@@ -607,10 +607,10 @@ export class GraphiqueService {
 
         doc.moveTo(posX1, posY1).lineTo(posX2, posY2).stroke();
 
-        doc.fontSize(7).font("Helvetica").fillColor("#1f2937");
-        const midX = (posX1 + posX2) / 2;
-        const midY = (posY1 + posY2) / 2;
-        doc.text("Régression", midX - 20, midY - 10);
+        // doc.fontSize(7).font("Helvetica").fillColor("#1f2937");
+        // const midX = (posX1 + posX2) / 2;
+        // const midY = (posY1 + posY2) / 2;
+        // doc.text("Régression", midX - 20, midY - 10);
     }
 
     /**
