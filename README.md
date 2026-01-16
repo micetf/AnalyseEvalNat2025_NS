@@ -41,7 +41,9 @@ Cette droite représente le **résultat attendu** en fonction du contexte socio-
 
 ### Catégorisation des écoles
 
-Chaque école est catégorisée selon l'**écart** entre son résultat réel et le résultat attendu par la régression :
+#### Catégorisation par compétence
+
+Chaque compétence est catégorisée selon l'**écart** entre le résultat réel et le résultat attendu par la régression :
 
 ```
 Écart = % satisfaisant réel - % satisfaisant attendu (régression)
@@ -52,6 +54,41 @@ Chaque école est catégorisée selon l'**écart** entre son résultat réel et 
 | **LEVIER**    | Écart > +7 points | 🟢 Vert  | Surperformance significative   |
 | **CONFORME**  | -7 ≤ Écart ≤ +7   | 🟡 Jaune | Performance conforme à l'IPS   |
 | **VIGILANCE** | Écart < -7 points | 🔴 Rouge | Sous-performance significative |
+
+#### Profil global par école
+
+**⚠️ Important** : Le profil global d'une école est déterminé par le **croisement des profils par matière** (Maths et Français), et non par le pourcentage de compétences en vigilance.
+
+**Calcul du profil global** :
+
+1. Calculer le **% satisfaisant moyen** pour Maths et Français (cumul effectifs B+F+S)
+2. Déterminer le **profil de chaque matière** selon l'écart vs attendu IPS :
+
+    - Écart > +7 → LEVIER
+    - -7 ≤ Écart ≤ +7 → CONFORME
+    - Écart < -7 → VIGILANCE
+
+3. Croiser les deux profils pour obtenir le **profil global** :
+
+| Maths \ Français | VIGILANCE                     | CONFORME             | LEVIER            |
+| ---------------- | ----------------------------- | -------------------- | ----------------- |
+| **VIGILANCE**    | 🔴 ACCOMPAGNEMENT PRIORITAIRE | 🟠 VIGILANCE MODÉRÉE | 🟡 SUIVI RENFORCÉ |
+| **CONFORME**     | 🟠 VIGILANCE MODÉRÉE          | 🟡 SUIVI STANDARD    | 🟡 SUIVI RENFORCÉ |
+| **LEVIER**       | 🟡 SUIVI RENFORCÉ             | 🟡 SUIVI RENFORCÉ    | 🟢 ÉCOLE LEVIER   |
+
+**Avantages de cette approche** :
+
+✅ **Cohérence totale** : Le profil global correspond exactement aux graphiques PDF  
+✅ **Pertinence pédagogique** : Une école n'est en "ACCOMPAGNEMENT PRIORITAIRE" que si elle est en difficulté sur **les deux matières** principales  
+✅ **Nuances préservées** : Les profils intermédiaires permettent de distinguer les situations mixtes
+
+**Exemple** :
+
+-   École avec % satisfaisant Maths = 52% (attendu 50%, écart +2) → CONFORME
+-   École avec % satisfaisant Français = 48% (attendu 50%, écart -2) → CONFORME
+-   Profil global = CONFORME × CONFORME → **🟡 SUIVI STANDARD**
+
+Même si cette école a 20 compétences individuelles en vigilance (33%), son profil global est "SUIVI STANDARD" car sa performance moyenne par matière est conforme à l'attendu IPS.
 
 ### Matrice de priorisation 3×3
 
@@ -177,6 +214,11 @@ pnpm start
 -   Écoles leviers identifiées (≥30% compétences en surperformance)
 -   Taux de leviers par école
 -   Données IPS et profil global
+-   **Nouvelles colonnes (v1.1.0)** :
+-   `profil_maths` : Profil Maths (LEVIER / CONFORME / VIGILANCE)
+-   `profil_francais` : Profil Français (LEVIER / CONFORME / VIGILANCE)
+-   `pct_satisfaisant_maths` : % satisfaisant moyen en Maths
+-   `pct_satisfaisant_francais` : % satisfaisant moyen en Français
 
 #### Onglet 5 : 🏫 Écoles
 
@@ -200,6 +242,8 @@ Deux fichiers PDF générés :
 -   Liste numérotée de toutes les écoles
 -   Légende et interprétation
 
+**Note** : Les profils affichés dans les graphiques PDF sont **cohérents** avec les profils de l'onglet Leviers depuis la version 1.1.0.
+
 ## Architecture du code
 
 ```
@@ -209,7 +253,7 @@ src/
 │   ├── oraceService.js         # Chargement CSV + extraction effectifs
 │   ├── ipsService.js           # Récupération IPS via API data.gouv
 │   ├── referencesService.js    # Chargement références DEPP
-│   ├── analyseService.js       # Régressions + catégorisation
+│   ├── analyseService.js       # Régressions + catégorisation + profil global
 │   ├── strategieService.js     # 5 niveaux de lecture
 │   ├── exportService.js        # Génération Excel
 │   └── graphiqueService.js     # Génération PDF
@@ -265,6 +309,54 @@ Les graphiques permettent de :
 3. **Valoriser les pratiques** (écoles leviers en zone verte)
 4. **Mesurer l'équité** (dispersion autour de la droite)
 
+### Cohérence Excel / PDF
+
+Depuis la version 1.1.0, le profil global affiché dans l'onglet Leviers est **strictement cohérent** avec la position des écoles sur les graphiques PDF :
+
+-   Une école en zone verte (LEVIER) sur Maths et Français aura le profil **🟢 ÉCOLE LEVIER**
+-   Une école en zone rouge (VIGILANCE) sur les deux matières aura le profil **🔴 ACCOMPAGNEMENT PRIORITAIRE**
+-   Une école en zone jaune (CONFORME) sur les deux matières aura le profil **🟡 SUIVI STANDARD**
+
+Cette cohérence permet une lecture stratégique unifiée entre les différentes vues.
+
+## Changelog
+
+### Version 1.1.0 (Janvier 2025)
+
+**🔧 Correction majeure : Cohérence profil global / graphiques PDF**
+
+-   **Problème corrigé** : Certaines écoles apparaissaient avec le profil "ACCOMPAGNEMENT PRIORITAIRE" dans l'onglet Leviers alors qu'elles étaient en zone CONFORME sur les deux graphiques PDF.
+
+-   **Cause** : Deux logiques de catégorisation coexistaient :
+
+    -   Onglet Leviers : Basé sur le % de compétences en vigilance (≥30% → prioritaire)
+    -   Graphiques PDF : Basé sur le % satisfaisant moyen par matière vs attendu IPS
+
+-   **Solution implémentée** : Harmonisation des logiques
+
+    -   Le profil global est maintenant calculé **par matière** comme dans les graphiques
+    -   Croisement des profils Maths × Français pour obtenir le profil global
+    -   Cohérence totale entre Excel et PDF
+
+-   **Nouvelles colonnes** ajoutées dans l'onglet Leviers :
+
+    -   `profil_maths` : LEVIER / CONFORME / VIGILANCE
+    -   `profil_francais` : LEVIER / CONFORME / VIGILANCE
+    -   `pct_satisfaisant_maths` : % satisfaisant moyen en Maths
+    -   `pct_satisfaisant_francais` : % satisfaisant moyen en Français
+
+-   **Impact** : Certaines écoles peuvent changer de profil global (normal et souhaitable)
+    -   Exemple : École avec 30% compétences en vigilance mais performance moyenne correcte → passe de "PRIORITAIRE" à "SUIVI STANDARD"
+    -   Plus pertinent pédagogiquement car basé sur la performance globale par matière
+
+### Version 1.0.0 (Janvier 2025)
+
+-   Version initiale avec 5 niveaux de lecture
+-   Export Excel stratégique
+-   Graphiques PDF par discipline
+-   Matrice de priorisation 3×3
+-   Portefeuille des leviers
+
 ## Support et contribution
 
 Pour toute question ou amélioration, contacter le CPC Numérique.
@@ -276,5 +368,5 @@ MIT
 ---
 
 **Auteur :** CPC Numérique  
-**Version :** 1.0.0  
+**Version :** 1.1.0  
 **Dernière mise à jour :** Janvier 2025

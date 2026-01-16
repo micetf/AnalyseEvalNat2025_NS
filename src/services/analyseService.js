@@ -209,12 +209,13 @@ export class AnalyseService {
     }
 
     /**
-     * Génère une synthèse par école
+     * Génère une synthèse par école avec profil global cohérent avec les graphiques
      * @param {Array} analyses - Toutes les analyses
      * @returns {Array}
      */
     genererSyntheseParEcole(analyses) {
         const parEcole = {};
+        const parEcoleMatiere = {}; // Pour calculer % satisfaisant par matière
 
         analyses.forEach((a) => {
             if (!parEcole[a.uai]) {
@@ -229,6 +230,11 @@ export class AnalyseService {
                     nb_conformes: 0,
                     nb_total: 0,
                 };
+
+                parEcoleMatiere[a.uai] = {
+                    maths: { besoins: 0, fragiles: 0, satisfaisant: 0 },
+                    francais: { besoins: 0, fragiles: 0, satisfaisant: 0 },
+                };
             }
 
             const ecole = parEcole[a.uai];
@@ -237,23 +243,120 @@ export class AnalyseService {
             if (a.categorie_code === "LEVIER") ecole.nb_leviers++;
             else if (a.categorie_code === "VIGILANCE") ecole.nb_vigilance++;
             else ecole.nb_conformes++;
+
+            // Cumuler effectifs par matière pour calcul % satisfaisant
+            const matiereCle = a.matiere === "Français" ? "francais" : "maths";
+            if (a.effectifs) {
+                parEcoleMatiere[a.uai][matiereCle].besoins +=
+                    a.effectifs.besoins;
+                parEcoleMatiere[a.uai][matiereCle].fragiles +=
+                    a.effectifs.fragiles;
+                parEcoleMatiere[a.uai][matiereCle].satisfaisant +=
+                    a.effectifs.satisfaisant;
+            }
         });
 
         return Object.values(parEcole)
             .map((e) => {
-                // Profil global
-                let profilGlobal;
-                const tauxVigilance =
-                    e.nb_total > 0 ? e.nb_vigilance / e.nb_total : 0;
-                const tauxLeviers =
-                    e.nb_total > 0 ? e.nb_leviers / e.nb_total : 0;
+                // Calculer % satisfaisant par matière
+                const maths = parEcoleMatiere[e.uai].maths;
+                const francais = parEcoleMatiere[e.uai].francais;
 
-                if (tauxVigilance >= 0.3) {
+                const totalMaths =
+                    maths.besoins + maths.fragiles + maths.satisfaisant;
+                const totalFrancais =
+                    francais.besoins +
+                    francais.fragiles +
+                    francais.satisfaisant;
+
+                const pctMaths =
+                    totalMaths > 0
+                        ? (maths.satisfaisant / totalMaths) * 100
+                        : null;
+                const pctFrancais =
+                    totalFrancais > 0
+                        ? (francais.satisfaisant / totalFrancais) * 100
+                        : null;
+
+                // Calculer écart vs attendu IPS pour déterminer le profil
+                let profilMaths = null;
+                let profilFrancais = null;
+
+                if (pctMaths !== null) {
+                    // Utiliser une régression Maths représentative
+                    const competencesMaths = Object.keys(
+                        this.regressions
+                    ).filter((c) => c.includes("_maths_"));
+                    if (competencesMaths.length > 0) {
+                        // Moyenne des régressions Maths pour plus de stabilité
+                        let sommeAttendu = 0;
+                        let nbReg = 0;
+                        competencesMaths.forEach((comp) => {
+                            const reg = this.regressions[comp];
+                            if (reg) {
+                                sommeAttendu += reg.a * e.ips + reg.b;
+                                nbReg++;
+                            }
+                        });
+                        if (nbReg > 0) {
+                            const attenduMaths = sommeAttendu / nbReg;
+                            const ecartMaths = pctMaths - attenduMaths;
+
+                            if (ecartMaths > 7) profilMaths = "LEVIER";
+                            else if (ecartMaths < -7) profilMaths = "VIGILANCE";
+                            else profilMaths = "CONFORME";
+                        }
+                    }
+                }
+
+                if (pctFrancais !== null) {
+                    // Utiliser une régression Français représentative
+                    const competencesFrancais = Object.keys(
+                        this.regressions
+                    ).filter((c) => c.includes("_francais_"));
+                    if (competencesFrancais.length > 0) {
+                        // Moyenne des régressions Français pour plus de stabilité
+                        let sommeAttendu = 0;
+                        let nbReg = 0;
+                        competencesFrancais.forEach((comp) => {
+                            const reg = this.regressions[comp];
+                            if (reg) {
+                                sommeAttendu += reg.a * e.ips + reg.b;
+                                nbReg++;
+                            }
+                        });
+                        if (nbReg > 0) {
+                            const attenduFrancais = sommeAttendu / nbReg;
+                            const ecartFrancais = pctFrancais - attenduFrancais;
+
+                            if (ecartFrancais > 7) profilFrancais = "LEVIER";
+                            else if (ecartFrancais < -7)
+                                profilFrancais = "VIGILANCE";
+                            else profilFrancais = "CONFORME";
+                        }
+                    }
+                }
+
+                // Déterminer profil global basé sur les profils par matière (cohérent avec graphiques)
+                let profilGlobal;
+
+                const vigilanceMatieres = [
+                    profilMaths === "VIGILANCE",
+                    profilFrancais === "VIGILANCE",
+                ].filter(Boolean).length;
+                const levierMatieres = [
+                    profilMaths === "LEVIER",
+                    profilFrancais === "LEVIER",
+                ].filter(Boolean).length;
+
+                if (vigilanceMatieres === 2) {
                     profilGlobal = "🔴 ACCOMPAGNEMENT PRIORITAIRE";
-                } else if (tauxLeviers >= 0.3) {
+                } else if (levierMatieres === 2) {
                     profilGlobal = "🟢 ÉCOLE LEVIER";
-                } else if (e.nb_vigilance >= 5) {
+                } else if (vigilanceMatieres === 1) {
                     profilGlobal = "🟠 VIGILANCE MODÉRÉE";
+                } else if (levierMatieres === 1) {
+                    profilGlobal = "🟡 SUIVI RENFORCÉ";
                 } else {
                     profilGlobal = "🟡 SUIVI STANDARD";
                 }
@@ -265,9 +368,34 @@ export class AnalyseService {
                     taux_vigilance:
                         ((e.nb_vigilance / e.nb_total) * 100).toFixed(1) + "%",
                     profil_global: profilGlobal,
+                    profil_maths: profilMaths,
+                    profil_francais: profilFrancais,
+                    pct_satisfaisant_maths:
+                        pctMaths !== null ? pctMaths.toFixed(1) : null,
+                    pct_satisfaisant_francais:
+                        pctFrancais !== null ? pctFrancais.toFixed(1) : null,
                 };
             })
             .sort((a, b) => {
+                // Tri par priorité : vigilance 2 matières > vigilance 1 matière > reste
+                const prioriteA =
+                    a.profil_global === "🔴 ACCOMPAGNEMENT PRIORITAIRE"
+                        ? 0
+                        : a.profil_global === "🟠 VIGILANCE MODÉRÉE"
+                        ? 1
+                        : 2;
+                const prioriteB =
+                    b.profil_global === "🔴 ACCOMPAGNEMENT PRIORITAIRE"
+                        ? 0
+                        : b.profil_global === "🟠 VIGILANCE MODÉRÉE"
+                        ? 1
+                        : 2;
+
+                if (prioriteA !== prioriteB) {
+                    return prioriteA - prioriteB;
+                }
+
+                // Si même priorité, trier par nb vigilance
                 if (a.nb_vigilance !== b.nb_vigilance) {
                     return b.nb_vigilance - a.nb_vigilance;
                 }
